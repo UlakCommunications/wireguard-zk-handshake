@@ -25,6 +25,9 @@
 #include <net/rtnetlink.h>
 #include <net/ip_tunnels.h>
 #include <net/addrconf.h>
+#include "zk_debugfs.h"
+#include "wgzk_genl.h"
+
 
 static LIST_HEAD(device_list);
 
@@ -477,3 +480,4 @@ void wg_device_uninit(void)
 	unregister_pm_notifier(&pm_notifier);
 	rcu_barrier();
 }
+

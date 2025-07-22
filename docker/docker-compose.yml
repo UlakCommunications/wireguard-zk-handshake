@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  wgzk:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: wgzk
+    privileged: true
+    volumes:
+      - ../kernel:/root/kernel
+      - ../userspace:/root/userspace
+    cap_add:
+      - ALL
+    devices:
+      - /dev/net/tun
+    stdin_open: true
+    tty: true

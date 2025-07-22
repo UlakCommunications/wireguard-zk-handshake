@@ -14,4 +14,7 @@ wireguard-y += allowedips.o
 wireguard-y += ratelimiter.o
 wireguard-y += cookie.o
 wireguard-y += netlink.o
+
+wireguard-y += zk_debugfs.o wgzk_genl.o zk_pending.o
+
 obj-$(CONFIG_WIREGUARD) := wireguard.o
