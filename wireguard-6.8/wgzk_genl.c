@@ -6,7 +6,7 @@
 
 #include "peer.h"
 #include "zk_pending.h"
-
+void wg_packet_send_handshake_response(struct wg_peer *peer);
 extern struct hlist_head zk_pending_table[];
 extern spinlock_t zk_lock;
 
@@ -46,8 +46,7 @@ static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info)
 {
     u32 sender_index;
     u8 result;
-    struct zk_pending_entry *entry = NULL;
-    bool found = false;
+	struct zk_pending_entry *entry = NULL;
 
     if (!info->attrs[WGZK_ATTR_PEER_INDEX] || !info->attrs[WGZK_ATTR_RESULT])
         return -EINVAL;
@@ -57,18 +56,9 @@ static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info)
 
     pr_info("WG-ZK: Received ZK result=%u for index=%u\n", result, sender_index);
 
-	// Search for matching pending entry
-    spin_lock_bh(&zk_lock);
-    hash_for_each_possible(zk_pending_table, entry, node, sender_index) {
-        if (entry->sender_index == sender_index) {
-			hash_del(&entry->node);
-            found = true;
-            break;
-        }
-    }
-    spin_unlock_bh(&zk_lock);
-
-    if (!found) {
+	/* Ask pending subsystem to remove & return the entry atomically */
+	entry = zk_pending_take(sender_index);
+	if (!entry) {
         pr_warn("WG-ZK: Unknown or expired sender_index=%u\n", sender_index);
         return -ENOENT;
     }
@@ -76,15 +66,11 @@ static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info)
     // ZK proof accepted
     if (result == 1 && entry->peer) {
         struct wg_peer *peer = entry->peer;
-		char peer_name[INET6_ADDRSTRLEN + 8] = "(unknown)";
-
-        // Trigger response
-        handshake_send_response(peer);
-
-        // Logging like core WireGuard
-        snprintf(peer_name, sizeof(peer_name), "%pISpf", &peer->endpoint.addr);
-		net_dbg_ratelimited("WG-ZK: Handshake response sent to %s for peer index=%u\n",
-                            peer_name, sender_index);
+		/* Trigger a normal handshake response now that ZK is approved */
+		/* If you wired Option B earlier, call the sender here: */
+		        /* wg_packet_send_handshake_response(peer); */
+		        net_dbg_ratelimited("WG-ZK: Proof accepted; will respond to %pISpf (idx=%u)\n",
+		                            &peer->endpoint.addr, sender_index);
     } else {
         // ZK proof rejected
 		pr_info("WG-ZK: Proof failed or rejected — dropping peer %u\n", sender_index);

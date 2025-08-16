@@ -120,7 +120,7 @@ bool
 wg_noise_handshake_create_initiation(struct message_handshake_initiation *dst,
 				     struct noise_handshake *handshake);
 struct wg_peer *
-wg_noise_handshake_consume_initiation(struct message_handshake_initiation *src,
+wg_noise_handshake_consume_initiation(void *src,
 				      struct wg_device *wg);
 
 bool wg_noise_handshake_create_response(struct message_handshake_response *dst,

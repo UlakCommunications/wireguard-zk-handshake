@@ -29,9 +29,9 @@ static int __init wg_mod_init(void)
 
 
     /* create our ZK debugfs dir at the root (NULL parent) */
-    zk_debugfs_init(NULL); // Optional: Netlink family for ZK ACKs
-    zk_pending_init_cleanup_timer();
-    zk_procfs_init();
+	zk_debugfs_init(NULL);
+	wgzk_genl_init();
+	zk_procfs_init();
 
 	ret = wg_allowedips_slab_init();
 	if (ret < 0)
@@ -79,7 +79,7 @@ static void __exit wg_mod_exit(void)
 	wg_peer_uninit();
 	wg_allowedips_slab_uninit();
 
-    wgzk_netlink_exit();
+	wgzk_genl_exit();
     zk_debugfs_cleanup();
     zk_pending_cleanup_timer_exit();
     zk_procfs_exit();

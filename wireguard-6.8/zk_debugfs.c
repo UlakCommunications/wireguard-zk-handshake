@@ -7,6 +7,7 @@
 #include <linux/uaccess.h>
 #include <linux/seq_file.h>
 #include "zk_pending.h"
+#include "zk_debugfs.h"
 
 #define ZK_BUF_SIZE 256
 
@@ -31,11 +32,10 @@ static const struct file_operations zk_fops = {
 };
 
 static struct dentry *zk_debugfs_file;
+/* Forward declare before first use */
+static int zk_pending_open(struct inode *inode, struct file *file);
+static const struct file_operations zk_pending_fops;
 
-void zk_debugfs_init(struct dentry *parent)
-{
-
-}
 int zk_debugfs_init(struct dentry *parent)
 {
     zk_debugfs_file = debugfs_create_file("zk_handshake", 0444, parent, NULL, &zk_fops);
@@ -47,7 +47,7 @@ int zk_debugfs_init(struct dentry *parent)
     return 0;
 }
 
-void zk_debugfs_exit(void)
+void zk_debugfs_cleanup(void)
 {
     debugfs_remove(zk_debugfs_file);
 }
@@ -62,28 +62,28 @@ void zk_debugfs_update(const void *msg, size_t len)
     zk_handshake_len = len;
     mutex_unlock(&zk_buffer_lock);
 }
-
-static int zk_pending_show(struct seq_file *m, void *v)
-{
-    struct zk_pending_entry *entry;
-    int bkt;
-    u64 now = ktime_get_coarse_boottime_ns();
-
-    seq_printf(m, "Total pending entries: %d\n", zk_pending_get_count());
-    seq_printf(m, "Index\tAge (ms)\n");
-
-    spin_lock_bh(&zk_lock);
-    hash_for_each(zk_pending_table, bkt, entry, node) {
-        u64 age_ms = div_u64(now - entry->created_ns, NSEC_PER_MSEC);
-        seq_printf(m, "%u\t%llu ms\n", entry->sender_index, age_ms);
-    }
-    spin_unlock_bh(&zk_lock);
-
-    return 0;
-}
+//
+//static int zk_pending_show(struct seq_file *m, void *v)
+//{
+//    struct zk_pending_entry *entry;
+//    int bkt;
+//    u64 now = ktime_get_coarse_boottime_ns();
+//
+//    seq_printf(m, "Total pending entries: %d\n", zk_pending_get_count());
+//    seq_printf(m, "Index\tAge (ms)\n");
+//
+//    spin_lock_bh(&zk_lock);
+//    hash_for_each(zk_pending_table, bkt, entry, node) {
+//        u64 age_ms = div_u64(now - entry->created_ns, NSEC_PER_MSEC);
+//        seq_printf(m, "%u\t%llu ms\n", entry->sender_index, age_ms);
+//    }
+//    spin_unlock_bh(&zk_lock);
+//
+//    return 0;
+//}
 static int zk_pending_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, zk_pending_show, NULL);
+    return single_open(file, zk_pending_seq_show, NULL);
 }
 
 static const struct file_operations zk_pending_fops = {

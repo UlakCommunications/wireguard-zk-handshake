@@ -24,6 +24,23 @@ int zk_pending_get_count(void)
     return atomic_read(&zk_pending_count);
 }
 
+int zk_pending_seq_show(struct seq_file *m, void *v)
+{
+    struct zk_pending_entry *entry;
+    int bkt;
+    u64 now = ktime_get_coarse_boottime_ns();
+
+    seq_printf(m, "Total pending entries: %d\n", zk_pending_get_count());
+    seq_printf(m, "Index\tAge (ms)\n");
+
+    spin_lock_bh(&zk_lock);
+    hash_for_each(zk_pending_table, bkt, entry, node) {
+        u64 age_ms = div_u64(now - entry->created_ns, NSEC_PER_MSEC);
+        seq_printf(m, "%u\t%llu ms\n", entry->sender_index, age_ms);
+    }
+    spin_unlock_bh(&zk_lock);
+    return 0;
+}
 
 void zk_pending_add(u32 sender_index, struct wg_peer *peer)
 {
@@ -103,4 +120,22 @@ void zk_pending_init_cleanup_timer(void)
 void zk_pending_cleanup_timer_exit(void)
 {
     del_timer_sync(&zk_cleanup_timer);
+}
+struct zk_pending_entry *zk_pending_take(u32 sender_index)
+{
+    struct zk_pending_entry *entry;
+    bool found = false;
+
+    spin_lock_bh(&zk_lock);
+    hash_for_each_possible(zk_pending_table, entry, node, sender_index) {
+        if (entry->sender_index == sender_index) {
+            hash_del(&entry->node);
+            atomic_dec(&zk_pending_count);
+            found = true;
+            break;
+        }
+    }
+    spin_unlock_bh(&zk_lock);
+
+    return found ? entry : NULL;
 }

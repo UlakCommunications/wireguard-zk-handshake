@@ -4,7 +4,7 @@
 
 static int zk_proc_show(struct seq_file *m, void *v)
 {
-    return zk_pending_show(m, v); // reuse DebugFS logic
+    return zk_pending_seq_show(m, v); // reuse DebugFS logic
 }
 
 static int zk_proc_open(struct inode *inode, struct file *file)
