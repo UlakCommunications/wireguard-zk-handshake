@@ -3,11 +3,12 @@ mod netlink;
 use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT as G, edwards::EdwardsPoint, scalar::Scalar};
 use sha2::{Digest, Sha512};
 use std::{fs, thread, time::Duration};
-
 fn decompress_point(bytes: &[u8]) -> Option<EdwardsPoint> {
-    use curve25519_dalek::edwards::CompressedEdwardsY;
-    Some(CompressedEdwardsY::from_slice(bytes).decompress()?)
-}
+    match curve25519_dalek::edwards::CompressedEdwardsY::from_slice(bytes) {
+        Ok(comp) => comp.decompress(),
+        Err(_) => None,
+    }
+} 
 
 fn verify_proof(pk: EdwardsPoint, zk_r: EdwardsPoint, zk_s: Scalar) -> bool {
     let mut hasher = Sha512::new();

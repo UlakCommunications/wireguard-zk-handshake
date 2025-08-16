@@ -18,8 +18,9 @@
 #include <net/rtnetlink.h>
 
 #include "zk_debugfs.h"
-#include "wgzk_genl.h"
 #include "zk_pending.h"
+#include "wgzk_genl.h"
+#include "zk_procfs.h"
 
 
 static int __init wg_mod_init(void)
@@ -27,8 +28,8 @@ static int __init wg_mod_init(void)
 	int ret;
 
 
-    zk_debugfs_init();
-    wgzk_netlink_init();      // Optional: Netlink family for ZK ACKs
+    /* create our ZK debugfs dir at the root (NULL parent) */
+    zk_debugfs_init(NULL); // Optional: Netlink family for ZK ACKs
     zk_pending_init_cleanup_timer();
     zk_procfs_init();
 

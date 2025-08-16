@@ -10,3 +10,5 @@
 wireguard.mod.c
 wireguard.mod
 /tmp/**
+/userspace/wg-zk-daemon/target/**
+/userspace/wg-zk-daemon/Cargo.lock
