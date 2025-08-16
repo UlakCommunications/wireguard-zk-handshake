@@ -42,23 +42,28 @@ int zk_pending_seq_show(struct seq_file *m, void *v)
     return 0;
 }
 
-void zk_pending_add(u32 sender_index, struct wg_peer *peer)
+void zk_pending_add(u32 sender_index, struct wg_peer *peer,
+                    struct wg_device *wg, const void *raw,
+                    size_t len)
 {
-	struct zk_pending_entry *entry;
+	struct zk_pending_entry *e;
 
 	// Cleanup before adding
 	zk_pending_cleanup_expired();
 
-	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
-    if (!entry)
+	e = kmalloc(sizeof(*e), GFP_KERNEL);
+    if (!e)
         return;
 
-    entry->sender_index = sender_index;
-    entry->peer = peer;
-    entry->created_ns = ktime_get_coarse_boottime_ns();
+    e->sender_index = sender_index;
+    e->peer = peer;
+    e->wg = wg;
+    e->raw = kmemdup(raw, len, GFP_ATOMIC);
+    e->len = e->raw ? len : 0;
+    e->created_ns = ktime_get_coarse_boottime_ns();
 
 	spin_lock_bh(&zk_lock);
-    hash_add(zk_pending_table, &entry->node, sender_index);
+    hash_add(zk_pending_table, &e->node, sender_index);
 	spin_unlock_bh(&zk_lock);
     atomic_inc(&zk_pending_count);
 	pr_info("WG-ZK: Added pending peer index=%u\n", sender_index);
@@ -74,6 +79,7 @@ struct wg_peer *zk_pending_get(u32 sender_index)
         if (entry->sender_index == sender_index) {
 			hash_del(&entry->node);
             peer = entry->peer;
+            kfree(entry->raw);
             kfree(entry);
             break;
         }
@@ -96,6 +102,7 @@ void zk_pending_cleanup_expired(void)
         if ((s64)(now - entry->created_ns) > ZK_PENDING_TIMEOUT_NS) {
 			pr_info("WG-ZK: Expired pending index=%u\n", entry->sender_index);
             hash_del(&entry->node);
+            kfree(entry->raw);
             kfree(entry);
         }
     }

@@ -1,6 +1,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include "zk_pending.h"
+#include "zk_procfs.h"
 
 static int zk_proc_show(struct seq_file *m, void *v)
 {

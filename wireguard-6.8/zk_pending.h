@@ -8,16 +8,22 @@
 #include "peer.h"
 
 struct zk_pending_entry {
+    u32 sender_index;
+    struct wg_peer *peer;
+    struct wg_device *wg;        /* needed to re-consume */
+    void *raw;                   /* kmemdup of initiation */
+    size_t len;                  /* length of raw */
 	struct hlist_node node;
-	u32 sender_index;
-	struct wg_peer *peer;
 	u64 created_ns;
 };
 
 extern struct hlist_head zk_pending_table[];
 extern spinlock_t zk_lock;
 int zk_pending_get_count(void);
-void zk_pending_add(u32 sender_index, struct wg_peer *peer);
+void zk_pending_add(u32 sender_index, struct wg_peer *peer,
+                    struct wg_device *wg,
+                    const void *raw,
+                    size_t len);
 struct wg_peer *zk_pending_get(u32 sender_index);
 void zk_pending_cleanup_expired(void);
 

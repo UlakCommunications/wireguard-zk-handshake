@@ -599,6 +599,10 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 	u8 t[NOISE_TIMESTAMP_LEN];
 	u64 initiation_consumption;
 
+	/* Lookup which peer we're actually talking to */
+	peer = wg_pubkey_hashtable_lookup(wg->peer_hashtable, s);
+	if (!peer)
+		goto out;
 	/* ZK hook: if this is a ZK handshake, short-circuit for user-space.
 	 * NOTE: header.type is little-endian; convert before comparing. */
 	if (le32_to_cpu(src->header.type) == MESSAGE_HANDSHAKE_INITIATION_ZK) {
@@ -607,7 +611,7 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 
                /* We don't resolve sender_index -> peer here.
                 * Defer to userspace; enqueue with NULL peer. */
-               zk_pending_add(sender_index, NULL);
+               zk_pending_add(sender_index, peer, wg, zk, sizeof(*zk));
                zk_debugfs_update(zk, sizeof(*zk)); /* expose raw ZK packet */
 
                pr_info("WG-ZK: Handshake ZK init index=%u — awaiting proof\n",
@@ -636,10 +640,6 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 			     sizeof(src->encrypted_static), key, hash))
 		goto out;
 
-	/* Lookup which peer we're actually talking to */
-	peer = wg_pubkey_hashtable_lookup(wg->peer_hashtable, s);
-	if (!peer)
-		goto out;
 	handshake = &peer->handshake;
 
 	/* ss */

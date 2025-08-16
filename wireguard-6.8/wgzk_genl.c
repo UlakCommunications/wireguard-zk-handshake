@@ -6,7 +6,12 @@
 
 #include "peer.h"
 #include "zk_pending.h"
+#include "wgzk_genl.h"
+
+struct wg_peer *wg_noise_handshake_consume_initiation(void *raw_msg,
+                                                      struct wg_device *wg);
 void wg_packet_send_handshake_response(struct wg_peer *peer);
+
 extern struct hlist_head zk_pending_table[];
 extern spinlock_t zk_lock;
 
@@ -42,11 +47,10 @@ static const struct nla_policy wgzk_genl_policy[WGZK_ATTR_MAX + 1] = {
 //
 // VERIFY handler
 //
-static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info)
-{
+static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info) {
     u32 sender_index;
     u8 result;
-	struct zk_pending_entry *entry = NULL;
+    struct zk_pending_entry *entry = NULL;
 
     if (!info->attrs[WGZK_ATTR_PEER_INDEX] || !info->attrs[WGZK_ATTR_RESULT])
         return -EINVAL;
@@ -56,28 +60,36 @@ static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info)
 
     pr_info("WG-ZK: Received ZK result=%u for index=%u\n", result, sender_index);
 
-	/* Ask pending subsystem to remove & return the entry atomically */
-	entry = zk_pending_take(sender_index);
-	if (!entry) {
+    /* Ask pending subsystem to remove & return the entry atomically */
+    entry = zk_pending_take(sender_index);
+    if (!entry) {
         pr_warn("WG-ZK: Unknown or expired sender_index=%u\n", sender_index);
         return -ENOENT;
     }
 
     // ZK proof accepted
     if (result == 1 && entry->peer) {
-        struct wg_peer *peer = entry->peer;
-		/* Trigger a normal handshake response now that ZK is approved */
-		/* If you wired Option B earlier, call the sender here: */
-		        /* wg_packet_send_handshake_response(peer); */
-		        net_dbg_ratelimited("WG-ZK: Proof accepted; will respond to %pISpf (idx=%u)\n",
-		                            &peer->endpoint.addr, sender_index);
+        struct wg_peer *peer = NULL;
+        if (entry->raw && entry->wg) {
+            /* Re-run the normal handshake path; it will decrypt static,
+             * bind to the correct peer, and return it on success. */
+            peer = wg_noise_handshake_consume_initiation(entry->raw, entry->wg);
+        }
+        if (!IS_ERR(peer) && peer) {
+            wg_packet_send_handshake_response(peer);
+            net_dbg_ratelimited("WG-ZK: Proof accepted; response sent to %pISpf (idx=%u)\n",
+                                &peer->endpoint.addr, sender_index);
+        } else {
+            pr_warn("WG-ZK: Re-consume failed for idx=%u\n", sender_index);
+        }
     } else {
         // ZK proof rejected
-		pr_info("WG-ZK: Proof failed or rejected — dropping peer %u\n", sender_index);
-		// Optionally: wg_peer_remove(entry->peer);
+        pr_info("WG-ZK: Proof failed or rejected — dropping peer %u\n", sender_index);
+        // Optionally: wg_peer_remove(entry->peer);
     }
 
-	kfree(entry);
+    kfree(entry->raw);
+    kfree(entry);
     return 0;
 }
 
