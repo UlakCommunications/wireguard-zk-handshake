@@ -461,9 +461,9 @@ int __init wg_device_init(void)
 	if (ret)
 		goto error_pernet;
 
-    ret = wgzk_genl_init();
-    if (ret)
-        return ret;
+//    ret = wgzk_genl_init();
+//    if (ret)
+//        return ret;
 
     return 0;
 
@@ -484,6 +484,6 @@ void wg_device_uninit(void)
 	unregister_pm_notifier(&pm_notifier);
 	rcu_barrier();
 
-    wgzk_genl_exit();
+//    wgzk_genl_exit();
 }
 

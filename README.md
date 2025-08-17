@@ -84,7 +84,7 @@ cd linux-hwe-6.8-6.8.0
 #sync your wg codes
 sudo chmod -R 777 .
 mv drivers/net/wireguard drivers/net/wireguard.bck
-cp /home/fatihyuce/work/projects/tmp/enes/wireguard-zk-handshake/wireguard-6.8 drivers/net/wireguard
+cp -r /home/fatihyuce/work/projects/tmp/enes/wireguard-zk-handshake/wireguard-6.8 drivers/net/wireguard
 
 make mrproper
 
@@ -94,11 +94,9 @@ cp /boot/config-$(uname -r) .config
 make olddefconfig
 make modules_prepare
 make -j$(nproc) modules
-ls -l Module.symvers
-make M=drivers/net/wireguard -j$(nproc)
-
-
-cd /path/to/wireguard-6.8
+#/path/to/wireguard-6.8
+cd ~/work/projects/tmp/enes/wireguard-zk-handshake/tmp/linux-signed-hwe-6.8-6.8.0/linux-hwe-6.8-6.8.0/drivers/net/wireguard 
+sudo apt-get install --reinstall linux-headers-$(uname -r)
 make -C /lib/modules/$(uname -r)/build M=$(pwd) clean
 make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
 
@@ -122,6 +120,20 @@ sudo rmmod wireguard
 sudo cp /home/fatihyuce/work/projects/tmp/enes/wireguard-zk-handshake/tmp/linux-signed-hwe-6.8-6.8.0/linux-hwe-6.8-6.8.0/drivers/net/wireguard/wireguard.ko /lib/modules/6.8.0-59-generic/kernel/drivers/net/wireguard/wireguard.ko
 sudo modprobe wireguard
 lsmod | grep wireguard
+
+
+
+# needs libnl cli tools (package: libnl-genl-3-200 / libnl-3-bin on Ubuntu)
+genl ctrl list | grep -i wgzk
+>>>Name: wgzk
+
+genl ctrl get name wgzk
+
+>>>>>Name: wgzk
+>>>>>        ID: 0x29  Version: 0x1  header size: 0  max attribs: 2 
+>>>>>        commands supported: 
+>>>>>                #1:  ID-0x1 
+>>>>>
 
 
 ```
