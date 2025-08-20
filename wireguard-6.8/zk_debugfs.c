@@ -12,19 +12,20 @@
 #include "zk_debugfs.h"
 
 #define ZK_BUF_SIZE 256
-
 #define ZK_LEN 96
-static char zk_handshake_buffer[ZK_BUF_SIZE];
-static size_t zk_handshake_len = 0;
-static struct dentry *wg_dir;
-static struct dentry *zk_file;
-static DEFINE_MUTEX(zk_lock);
+
+//static char zk_handshake_buffer[ZK_BUF_SIZE];
+//static size_t zk_handshake_len = 0;
+
+
+//static DEFINE_MUTEX(zk_lock);
+//static u8 zk_buf[ZK_LEN];
+/* Separate mutex for debugfs buffer; don't clash with pending's spinlock */
+static DEFINE_MUTEX(wgzk_dbgfs_mutex);
 static u8 zk_buf[ZK_LEN];
 
-/* [0..96) last handshake blob */
-static struct debugfs_blob_wrapper zk_blob = {.data = zk_buf, .size = ZK_LEN};
-static atomic_t zk_init_once = ATOMIC_INIT(0);
 
+static ssize_t zk_read(struct file *file, char __user *ubuf, size_t len, loff_t *ppos);
 static const struct file_operations zk_fops = {
         .owner = THIS_MODULE,
         .read  = zk_read,
@@ -64,6 +65,12 @@ static const struct file_operations zk_pending_fops = {
 //	if (IS_ERR_OR_NULL(zk_file))
 //		zk_file = NULL;
 //}
+//static struct dentry *wg_dir;
+//static struct dentry *zk_file;
+//
+///* [0..96) last handshake blob */
+//static struct debugfs_blob_wrapper zk_blob = {.data = zk_buf, .size = ZK_LEN};
+//static atomic_t zk_init_once = ATOMIC_INIT(0);
 
 static ssize_t zk_read(struct file *file, char __user *ubuf, size_t len, loff_t *ppos)
 {
@@ -73,12 +80,12 @@ static ssize_t zk_read(struct file *file, char __user *ubuf, size_t len, loff_t 
     if (*ppos >= sizeof(zk_buf))
         return 0;
 
-    mutex_lock(&zk_lock);
+    mutex_lock(&wgzk_dbgfs_mutex);
     n = min(len, sizeof(zk_buf) - (size_t) * ppos);
     ret = copy_to_user(ubuf, zk_buf + *ppos, n) ? -EFAULT : (ssize_t) n;
     if (ret > 0) *ppos +=
         ret;
-    mutex_unlock(&zk_lock);
+    mutex_unlock(&wgzk_dbgfs_mutex);
     return ret;
 }
 
@@ -104,16 +111,14 @@ void zk_debugfs_cleanup(void) {
     zk_debugfs_file = NULL;
 }
 
+/* Optional helper if you want to update from other code paths */
 void zk_debugfs_update(const void *msg, size_t len) {
-    if (len > ZK_BUF_SIZE)
-        len = ZK_BUF_SIZE;
-
-    mutex_lock(&zk_buffer_lock);
-    memcpy(zk_handshake_buffer, msg, len);
-    zk_handshake_len = len;
-    mutex_unlock(&zk_buffer_lock);
+    if (len > ZK_LEN)
+        len = ZK_LEN;
+    mutex_lock(&wgzk_dbgfs_mutex);
+    memcpy(zk_buf, msg, len);
+    mutex_unlock(&wgzk_dbgfs_mutex);
 }
-
 //
 //static int zk_pending_show(struct seq_file *m, void *v)
 //{
@@ -140,10 +145,10 @@ static int zk_pending_open(struct inode *inode, struct file *file) {
 
 /* Exported API: publish 96 bytes for userspace to read. Safe to call anytime. */
 void zk_publish_handshake(const u8 in96[ZK_LEN]) {
-    zk_debugfs_lazy_init();
-    mutex_lock(&zk_lock);
+//    zk_debugfs_lazy_init();
+    mutex_lock(&wgzk_dbgfs_mutex);
     memcpy(zk_buf, in96, ZK_LEN);
-    mutex_unlock(&zk_lock);
+    mutex_unlock(&wgzk_dbgfs_mutex);
 }
 
 EXPORT_SYMBOL_GPL(zk_publish_handshake);

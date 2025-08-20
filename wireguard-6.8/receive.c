@@ -154,23 +154,27 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 				    &peer->endpoint.addr);
 
         /* === ZK: publish 96 bytes for userspace === */
-        {
-            u8 out[96] = {0};
-            /* layout:
-               [0..4]  : (optional) seq/marker (0 for now)
-               [4..8]  : sender_index/peer id (LE)
-               [8..32] : reserved (zeros)
-               [32..64]: zk_R (compressed Edwards-Y)
-               [64..96]: zk_s (scalar)
-            */
-            put_unaligned_le32((u32)peer->internal_id, &out[4]);
-            memcpy(&out[32], message->zk_R, 32);
-            memcpy(&out[64], message->zk_s, 32);
-            zk_publish_handshake(out);
-            /* If you want to block the handshake until userspace ACKs,
-               return here and resume from your netlink ACK handler.
-               For now we proceed to send the normal response. */
-        }
+		if (wgzk_is_zk_initiation_len(skb->len)) {
+			const struct message_handshake_initiation_zk *mzk =
+					(const struct message_handshake_initiation_zk *) message;
+			{
+				u8 out[96] = {0};
+				/* layout:
+                   [0..4]  : (optional) seq/marker (0 for now)
+                   [4..8]  : sender_index/peer id (LE)
+                   [8..32] : reserved (zeros)
+                   [32..64]: zk_R (compressed Edwards-Y)
+                   [64..96]: zk_s (scalar)
+                */
+				put_unaligned_le32((u32) peer->internal_id, &out[4]);
+				memcpy(&out[32], mzk->zk_r, WGZK_R_LEN);
+				memcpy(&out[64], mzk->zk_s, WGZK_S_LEN);
+				zk_publish_handshake(out);
+				/* If you want to block the handshake until userspace ACKs,
+                   return here and resume from your netlink ACK handler.
+                   For now we proceed to send the normal response. */
+			}
+		}
         /* === end ZK block === */
 
 		wg_packet_send_handshake_response(peer);

@@ -86,7 +86,8 @@ struct message_handshake_initiation {
 	struct message_macs macs;
 };
 #define MESSAGE_HANDSHAKE_INITIATION_ZK 0xA1  // unused WireGuard type
-
+#define WGZK_R_LEN 32
+#define WGZK_S_LEN 32
 struct message_handshake_initiation_zk {
     struct message_header header;                      // type = 0xA1
     __le32 sender_index;
@@ -97,6 +98,11 @@ struct message_handshake_initiation_zk {
     u8 encrypted_timestamp[noise_encrypted_len(NOISE_TIMESTAMP_LEN)];
     struct message_macs macs;
 } __packed;
+
+static inline bool wgzk_is_zk_initiation_len(size_t len)
+{
+	return len == sizeof(struct message_handshake_initiation_zk);
+}
 
 struct message_handshake_response {
 	struct message_header header;

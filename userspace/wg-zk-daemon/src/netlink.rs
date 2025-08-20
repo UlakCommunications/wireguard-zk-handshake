@@ -11,6 +11,7 @@ use neli::{
     types::{Buffer, GenlBuffer},
     utils::Groups,
 };
+use neli::attr::Attribute;
 use neli::consts::genl::CtrlCmd;
 use neli::consts::nl::Nlmsg;
 use neli::genl::Nlattr;
@@ -121,55 +122,67 @@ pub async fn send_verify_ack(
 }
 
 
-/// Family id çöz
 async fn resolve_family_id(sock: &mut NlSocketHandle, name: &str) -> anyhow::Result<u16> {
-    // family name attribute
-    let attr: Nlattr<u16, Buffer> = NlattrBuilder::default()
-        .nla_type(AttrType::from(u16::from(CtrlAttr::FamilyName)))
-        .nla_payload(Buffer::from(name.as_bytes().to_vec()))
+    // NUL-terminated family name ("wgzk\0")
+    let mut namez = Vec::with_capacity(name.len() + 1);
+    namez.extend_from_slice(name.as_bytes());
+    namez.push(0);
+
+    // Typed attr/buffer: CtrlAttr + Buffer
+    let name_attr: Nlattr<CtrlAttr, Buffer> = NlattrBuilder::<CtrlAttr, Buffer>::default()
+        .nla_type(AttrType::from(u16::from(CtrlAttr::FamilyName))) // <-- u16'dan AttrType<CtrlAttr>
+        .nla_payload(Buffer::from(namez))
         .build()?;
 
-    let mut attrs: GenlBuffer<u16, Buffer> = GenlBuffer::new();
-    // attribute’ları ekle
-    attrs.push(attr);
+    let mut attrs: GenlBuffer<CtrlAttr, Buffer> = GenlBuffer::new();
+    attrs.push(name_attr);
 
+    // CTRL_CMD_GETFAMILY v2
     let genlhdr = GenlmsghdrBuilder::default()
         .cmd(CtrlCmd::Getfamily)
-        .version(1)
+        .version(2)
         .attrs(attrs)
         .build()?;
 
-    let nlhdr = NlmsghdrBuilder::default()
+    let req = NlmsghdrBuilder::default()
         .nl_type(GenlId::Ctrl)
         .nl_flags(NlmF::REQUEST | NlmF::ACK)
         .nl_payload(NlPayload::Payload(genlhdr))
         .build()?;
 
-    sock.send(&nlhdr).await?;
+    sock.send(&req).await.context("ctrl send failed")?;
 
-    let (iter, _) = sock.recv().await?;
-    for msg in iter {
-        let msg: Nlmsghdr<u16, Genlmsghdr<CtrlCmd, CtrlAttr>> = msg?;
-        if let NlPayload::Payload(p) = msg.nl_payload() {
-            for attr in p.attrs().iter() {
-                let ty: u16 = (*attr.nla_type().nla_type()).into();
-                // if u16::from(*attr.nla_type().nla_type()) ==  u16::from(CtrlAttr::FamilyId)
-                if ty == u16::from(CtrlAttr::FamilyId)
-                {
-                    let bytes = attr.nla_payload().as_ref();
-                    let id = if bytes.len() >= 2 {
-                        u16::from_ne_bytes([bytes[0], bytes[1]])
-                    } else {
-                        bail!("CTRL_ATTR_FAMILY_ID payload too short");
-                    };
+    // Multipart olabilir: önce ACK (NLMSG_ERROR code=0), sonra NEWFAMILY payload’ı
+    loop {
+        let (iter, _) = sock.recv().await.context("ctrl recv failed")?;
+        for msg in iter {
+            let msg: Nlmsghdr<u16, Genlmsghdr<CtrlCmd, CtrlAttr>> = msg?;
 
-                    // let id = u16::from_ne_bytes(
-                    //     attr.nla_payload().as_ref()[..2].try_into().unwrap(),
-                    // );
-                    return Ok(id);
+            // ACK (NLMSG_ERROR code=0)
+            if *msg.nl_type() == u16::from(Nlmsg::Error) {
+                if let NlPayload::Err(e) = msg.nl_payload() {
+                    if *e.error() != 0 {
+                        bail!("genl ctrl getfamily failed: {}", e);
+                    }
+                }
+                continue;
+            }
+
+            // NEWFAMILY cevabı: id’yi çek
+            if let NlPayload::Payload(p) = msg.nl_payload() {
+                for a in p.attrs().iter() {
+                    // Burada "cevaptaki" attr'ı kontrol ediyoruz
+                    if let CtrlAttr::FamilyId = *a.nla_type().nla_type() {
+                        let id: u16 = a.get_payload_as()?;
+                        return Ok(id);
+                    }
                 }
             }
         }
+        // id bu batch’te gelmediyse recv'e devam et
     }
-    bail!("family '{}' id not found", name)
 }
+
+
+
+

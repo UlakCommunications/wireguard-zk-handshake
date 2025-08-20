@@ -1,8 +1,8 @@
 
 
 ```bash
-cat /sys/kernel/debug/zk_pending
+ sudo cat /sys/kernel/debug/wireguard/zk_pending
 ```
-```rust
-cargo run -- send-verify-ack --peer-index 1 --result 1 --family wgzk --version 1
+```bash
+cargo run -- send-verify-ack --peer-index 1 --result 1 --family wgzk --version
 ```

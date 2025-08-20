@@ -23,16 +23,34 @@
 #include "zk_procfs.h"
 
 static struct dentry *wg_dbg_dir;  // module-global
+static struct dentry *get_wireguard_root(void)
+{
+    struct dentry *root;
+
+    /* Prefer reusing existing /sys/kernel/debug/wireguard */
+    root = debugfs_lookup("wireguard", NULL);
+    if (root)
+        return root;
+
+    /* Otherwise create it (first user wins) */
+    root = debugfs_create_dir("wireguard", NULL);
+    if (IS_ERR(root)) {
+        if (PTR_ERR(root) == -EEXIST)
+            return debugfs_lookup("wireguard", NULL);
+        return NULL; /* debugfs disabled or real error – proceed without */
+    }
+    return root;
+}
 
 static int __init wg_mod_init(void)
 {
 	int ret;
-	/* In module init (or wg_init): */
-	wg_dbg_dir = debugfs_create_dir("wireguard", NULL);
-	if (IS_ERR_OR_NULL(wg_dbg_dir)) {
-		pr_err("wgzk: wireguard debugfs dir create failed\n");
-		return -ENOMEM;
-	}
+    wg_dbg_dir = get_wireguard_root();
+
+    if (!wg_dbg_dir) {
+        pr_info("wgzk: debugfs not available; continuing without\n");
+        return 0; /* don’t fail module load because of debugfs */
+    }
 
     /* create our ZK debugfs dir at the root (NULL parent) */
 	zk_debugfs_init(wg_dbg_dir);
@@ -87,6 +105,10 @@ static void __exit wg_mod_exit(void)
 
 	wgzk_genl_exit();
     zk_debugfs_cleanup();
+	if (wg_dbg_dir) {
+		debugfs_remove_recursive(wg_dbg_dir);
+		wg_dbg_dir = NULL;
+	}
     zk_pending_cleanup_timer_exit();
     zk_procfs_exit();
 }

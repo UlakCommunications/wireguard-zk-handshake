@@ -96,6 +96,7 @@ void zk_pending_cleanup_expired(void)
     int bkt;
 
     u64 now = ktime_get_coarse_boottime_ns();
+    int removed = 0;
 
     spin_lock_bh(&zk_lock);
 	hash_for_each_safe(zk_pending_table, bkt, tmp, entry, node) {
@@ -104,10 +105,12 @@ void zk_pending_cleanup_expired(void)
             hash_del(&entry->node);
             kfree(entry->raw);
             kfree(entry);
+            removed++;
         }
     }
     spin_unlock_bh(&zk_lock);
-    atomic_dec(&zk_pending_count);
+    if (removed)
+        atomic_sub(removed, &zk_pending_count);
 }
 
 // Background cleanup timer
