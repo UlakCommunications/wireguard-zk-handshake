@@ -33,7 +33,8 @@ static size_t validate_header_len(struct sk_buff *skb)
 	if (SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_DATA) &&
 	    skb->len >= MESSAGE_MINIMUM_LENGTH)
 		return sizeof(struct message_data);
-	if (SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION) &&
+	if ((SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION)
+			|| SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION_ZK))  &&
 	    skb->len == sizeof(struct message_handshake_initiation))
 		return sizeof(struct message_handshake_initiation);
 	if (SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE) &&
@@ -133,7 +134,8 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 	}
 
 	switch (SKB_TYPE_LE32(skb)) {
-	case cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION): {
+		case cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION):
+		case cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION_ZK): {
 		struct message_handshake_initiation *message =
 			(struct message_handshake_initiation *)skb->data;
 
@@ -143,6 +145,11 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 			return;
 		}
 		peer = wg_noise_handshake_consume_initiation(message, wg);
+		if (IS_ERR(peer)) {
+			if (PTR_ERR(peer) == -EAGAIN)  // ZK path: wait for userspace VERIFY
+				return;
+			return;
+		}
 		if (unlikely(!peer)) {
 			net_dbg_skb_ratelimited("%s: Invalid handshake initiation from %pISpfsc\n",
 						wg->dev->name, skb);
@@ -153,29 +160,29 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 				    wg->dev->name, peer->internal_id,
 				    &peer->endpoint.addr);
 
-        /* === ZK: publish 96 bytes for userspace === */
-		if (wgzk_is_zk_initiation_len(skb->len)) {
-			const struct message_handshake_initiation_zk *mzk =
-					(const struct message_handshake_initiation_zk *) message;
-			{
-				u8 out[96] = {0};
-				/* layout:
-                   [0..4]  : (optional) seq/marker (0 for now)
-                   [4..8]  : sender_index/peer id (LE)
-                   [8..32] : reserved (zeros)
-                   [32..64]: zk_R (compressed Edwards-Y)
-                   [64..96]: zk_s (scalar)
-                */
-				put_unaligned_le32((u32) peer->internal_id, &out[4]);
-				memcpy(&out[32], mzk->zk_r, WGZK_R_LEN);
-				memcpy(&out[64], mzk->zk_s, WGZK_S_LEN);
-				zk_publish_handshake(out);
-				/* If you want to block the handshake until userspace ACKs,
-                   return here and resume from your netlink ACK handler.
-                   For now we proceed to send the normal response. */
-			}
-		}
-        /* === end ZK block === */
+//        /* === ZK: publish 96 bytes for userspace === */
+//		if (wgzk_is_zk_initiation_len(skb->len)) {
+//			const struct message_handshake_initiation_zk *mzk =
+//					(const struct message_handshake_initiation_zk *) message;
+//			{
+//				u8 out[96] = {0};
+//				/* layout:
+//                   [0..4]  : (optional) seq/marker (0 for now)
+//                   [4..8]  : sender_index/peer id (LE)
+//                   [8..32] : reserved (zeros)
+//                   [32..64]: zk_R (compressed Edwards-Y)
+//                   [64..96]: zk_s (scalar)
+//                */
+//				put_unaligned_le32((u32) peer->internal_id, &out[4]);
+//				memcpy(&out[32], mzk->zk_r, WGZK_R_LEN);
+//				memcpy(&out[64], mzk->zk_s, WGZK_S_LEN);
+//				zk_publish_handshake(out);
+//				/* If you want to block the handshake until userspace ACKs,
+//                   return here and resume from your netlink ACK handler.
+//                   For now we proceed to send the normal response. */
+//			}
+//		}
+//        /* === end ZK block === */
 
 		wg_packet_send_handshake_response(peer);
 		break;
@@ -571,6 +578,7 @@ void wg_packet_receive(struct wg_device *wg, struct sk_buff *skb)
 		goto err;
 	switch (SKB_TYPE_LE32(skb)) {
 	case cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION):
+	case cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION_ZK):
 	case cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE):
 	case cpu_to_le32(MESSAGE_HANDSHAKE_COOKIE): {
 		int cpu, ret = -EBUSY;

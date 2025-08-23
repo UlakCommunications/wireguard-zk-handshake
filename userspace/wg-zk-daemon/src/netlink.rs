@@ -1,31 +1,42 @@
 use anyhow::{bail, Context};
-use neli::{
-    consts::{
-        genl::CtrlAttr, // only needed if you parse ctrl replies elsewhere
-        nl::{GenlId, NlTypeWrapper, NlmF},
-        socket::NlFamily,
-    },
-    genl::{AttrType, Genlmsghdr, GenlmsghdrBuilder, NlattrBuilder},
-    nl::NlPayload,
-    router::synchronous::NlRouter,
-    types::{Buffer, GenlBuffer},
-    utils::Groups,
-};
 use neli::attr::Attribute;
 use neli::consts::genl::CtrlCmd;
 use neli::consts::nl::Nlmsg;
 use neli::genl::Nlattr;
 use neli::nl::{Nlmsghdr, NlmsghdrBuilder};
 use neli::socket::asynchronous::NlSocketHandle;
+use neli::{
+    consts::{
+        genl::CtrlAttr, // only needed if you parse ctrl replies elsewhere
+        nl::{GenlId, NlmF},
+        socket::NlFamily,
+    },
+    genl::{AttrType, Genlmsghdr, GenlmsghdrBuilder, NlattrBuilder},
+    nl::NlPayload
+    ,
+    types::{Buffer, GenlBuffer},
+    utils::Groups,
+};
 
-const WGZK_GENL: &str = "wgzk";
-const WGZK_VERSION: u8 = 1;
-const WGZK_CMD_VERIFY: u8 = 1;
-const WGZK_ATTR_PEER_INDEX: u16 = 1;
-const WGZK_ATTR_RESULT: u16 = 2;
+pub const WGZK_GENL: &str = "wgzk";
+// pub const WGZK_VERSION: u8 = 1;
+// pub const WGZK_CMD_VERIFY: u8 = 1;
+pub const WGZK_ATTR_PEER_INDEX: u16 = 1;
+pub const WGZK_ATTR_RESULT: u16 = 2;
 
+
+// Your wireguard-zk constants (keep them in one place)
+pub const WGZK_CMD_SET_PROOF: u8 = 2;
+pub const WGZK_ATTR_PEER_ID: u16 = 3;
+pub const WGZK_ATTR_R: u16 = 4;
+pub const WGZK_ATTR_S: u16 = 5;
+
+
+pub const WGZK_CMD_VERIFY_ACK: u8 = 1;
 
 async fn resolve_family_id(sock: &mut NlSocketHandle, name: &str) -> anyhow::Result<u16> {
+    let mut attrs: GenlBuffer<CtrlAttr, Buffer> = GenlBuffer::new();
+
     // NUL-terminated family name ("wgzk\0")
     let mut namez = Vec::with_capacity(name.len() + 1);
     namez.extend_from_slice(name.as_bytes());
@@ -37,7 +48,6 @@ async fn resolve_family_id(sock: &mut NlSocketHandle, name: &str) -> anyhow::Res
         .nla_payload(Buffer::from(namez))
         .build()?;
 
-    let mut attrs: GenlBuffer<CtrlAttr, Buffer> = GenlBuffer::new();
     attrs.push(name_attr);
 
     // CTRL_CMD_GETFAMILY v2
@@ -71,7 +81,7 @@ async fn resolve_family_id(sock: &mut NlSocketHandle, name: &str) -> anyhow::Res
             if let NlPayload::Payload(p) = msg.nl_payload() {
                 for a in p.attrs().iter() {
                     // Look at the *response* attr type:
-                    if let ty @ CtrlAttr::FamilyId = *a.nla_type().nla_type() {
+                    if let _ty @ CtrlAttr::FamilyId = *a.nla_type().nla_type() {
                         let id: u16 = a.get_payload_as()?;
                         return Ok(id);
                 }
@@ -88,9 +98,7 @@ pub async fn send_verify_ack(
     peer_index: u32,
     result: u8,
 ) -> anyhow::Result<()> {
-    const WGZK_CMD_VERIFY_ACK: u8 = 1;
-    const WGZK_ATTR_PEER_INDEX: u16 = 1;
-    const WGZK_ATTR_RESULT: u16 = 2;
+
 
     let mut sock = NlSocketHandle::connect(NlFamily::Generic, None, Groups::empty())?;
 
@@ -167,4 +175,54 @@ pub async fn send_verify_ack(
             }
         }
     }
+}
+
+
+/// Send WGZK_CMD_SET_PROOF(peer_id, R, S) to the kernel
+pub async fn send_set_proof(
+    family_name: &str,
+    version: u8,
+    peer_id: u64,
+    r: &[u8; 32],
+    s: &[u8; 32],
+)   {
+    let mut sock = NlSocketHandle::connect(NlFamily::Generic, None, Groups::empty())
+        .context("connect generic netlink for SET_PROOF").unwrap();
+
+    let fam_id = resolve_family_id(&mut sock, family_name).await.unwrap();
+    eprintln!("family '{}' resolved to id {}", family_name, fam_id);
+
+    let mut attrs: GenlBuffer<u16, Buffer> = GenlBuffer::new();
+
+    // Build attrs (your family uses u16 attr numbers)
+    let a1: Nlattr<u16, Buffer> = NlattrBuilder::default()
+        .nla_type(AttrType::from(WGZK_ATTR_PEER_ID))
+        .nla_payload(Buffer::from(peer_id.to_ne_bytes().to_vec()))
+        .build().unwrap();
+    attrs.push(a1);
+    let a2: Nlattr<u16, Buffer> = NlattrBuilder::default()
+        .nla_type(AttrType::from(WGZK_ATTR_R))
+        .nla_payload(Buffer::from(r.to_vec()))
+        .build().unwrap();
+    attrs.push(a2);
+    let a2: Nlattr<u16, Buffer> = NlattrBuilder::default()
+        .nla_type(AttrType::from(WGZK_ATTR_S))
+        .nla_payload(Buffer::from(s.to_vec()))
+        .build().unwrap();
+    attrs.push(a2);
+
+    let genlhdr = GenlmsghdrBuilder::default()
+        .cmd(WGZK_CMD_SET_PROOF)
+        .version(version) // pass 1
+        .attrs(attrs)
+        .build().unwrap();
+
+    let nlhdr = NlmsghdrBuilder::default()
+        .nl_type(fam_id)
+        .nl_flags(NlmF::REQUEST)
+        .nl_payload(NlPayload::Payload(genlhdr))
+        .build().unwrap();
+
+    sock.send(&nlhdr).await.context("send failed").unwrap();
+
 }

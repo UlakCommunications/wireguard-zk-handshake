@@ -11,7 +11,7 @@
 #include "zk_pending.h"
 
 #define ZK_HASH_BITS 8
-#define ZK_PENDING_TIMEOUT_NS (5 * NSEC_PER_SEC)
+#define ZK_PENDING_TIMEOUT_NS (30 * NSEC_PER_SEC)
 
 DEFINE_HASHTABLE(zk_pending_table, ZK_HASH_BITS);
 DEFINE_SPINLOCK(zk_lock);

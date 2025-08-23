@@ -28,6 +28,23 @@ sudo install -D -m 644 "$SRCDIR/drivers/net/wireguard/wireguard.ko" \
   /lib/modules/$(uname -r)/extra/wireguard.ko
 sudo depmod -a
 sudo rmmod wireguard
+# Load related modules
+
+sudo modprobe libchacha20poly1305
+sudo modprobe libcurve25519
+sudo modprobe udp_tunnel
+sudo modprobe ip6_udp_tunnel
+sudo modprobe curve25519-x86_64
+sudo modprobe libcurve25519-generic
+sudo modprobe libchacha20poly1305
+sudo modprobe udp_tunnel
+sudo modprobe ip6_udp_tunnel
+sudo modprobe chacha20poly1305
+sudo modprobe gcm
+sudo modprobe aes_generic
+modprobe aesni_intel
+modprobe af_alg
+
 #sudo modprobe wireguard   # or:
 sudo insmod /lib/modules/$(uname -r)/extra/wireguard.ko
 sudo dmesg | grep wireguard

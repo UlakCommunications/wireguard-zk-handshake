@@ -19,6 +19,7 @@
 
 #include "zk_pending.h"
 #include "zk_debugfs.h"
+#include "zk_proof.h"
 
 
 /* This implements Noise_IKpsk2:
@@ -536,7 +537,7 @@ wg_noise_handshake_create_initiation(struct message_handshake_initiation *dst,
 	if (unlikely(!handshake->static_identity->has_identity))
 		goto out;
 
-	dst->header.type = cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION);
+	dst->header.type = cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION_ZK);
 
 	handshake_init(handshake->chaining_key, handshake->hash,
 		       handshake->remote_static);
@@ -570,6 +571,19 @@ wg_noise_handshake_create_initiation(struct message_handshake_initiation *dst,
 	message_encrypt(dst->encrypted_timestamp, timestamp,
 			NOISE_TIMESTAMP_LEN, key, handshake->hash);
 
+    /* === ZK ek alanları doldur === */
+    if (le32_to_cpu(dst->header.type) == MESSAGE_HANDSHAKE_INITIATION_ZK) {
+        struct message_handshake_initiation_zk *zkdst = (void *)dst;
+        u8 r[32], s[32];
+        u64 pid = handshake->entry.peer->internal_id;
+        if (zk_proof_get_and_clear(pid, r, s)) {
+            memcpy(zkdst->zk_r, r, 32);
+            memcpy(zkdst->zk_s, s, 32);
+        } else {
+            pr_warn("WG-ZK: no cached R,S for peer_id=%llu\n",
+                    (unsigned long long)pid);
+        }
+    }
 	dst->sender_index = wg_index_hashtable_insert(
 		handshake->entry.peer->device->index_hashtable,
 		&handshake->entry);
@@ -599,10 +613,6 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 	u8 t[NOISE_TIMESTAMP_LEN];
 	u64 initiation_consumption;
 
-	/* Lookup which peer we're actually talking to */
-	peer = wg_pubkey_hashtable_lookup(wg->peer_hashtable, s);
-	if (!peer)
-		goto out;
 	/* ZK hook: if this is a ZK handshake, short-circuit for user-space.
 	 * NOTE: header.type is little-endian; convert before comparing. */
 	if (le32_to_cpu(src->header.type) == MESSAGE_HANDSHAKE_INITIATION_ZK) {
@@ -611,7 +621,7 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 
                /* We don't resolve sender_index -> peer here.
                 * Defer to userspace; enqueue with NULL peer. */
-               zk_pending_add(sender_index, peer, wg, zk, sizeof(*zk));
+               zk_pending_add(sender_index, NULL, wg, zk, sizeof(*zk));
                zk_debugfs_update(zk, sizeof(*zk)); /* expose raw ZK packet */
 
                pr_info("WG-ZK: Handshake ZK init index=%u — awaiting proof\n",
@@ -635,11 +645,15 @@ wg_noise_handshake_consume_initiation(void *raw_msg, struct wg_device *wg)
 	if (!mix_dh(chaining_key, key, wg->static_identity.static_private, e))
 		goto out;
 
-	/* s */
+    /* s (decrypt remote static), only now we can resolve peer */
 	if (!message_decrypt(s, src->encrypted_static,
 			     sizeof(src->encrypted_static), key, hash))
 		goto out;
 
+    /* resolve peer AFTER s is known */
+	peer = wg_pubkey_hashtable_lookup(wg->peer_hashtable, s);
+	if (!peer)
+		goto out;
 	handshake = &peer->handshake;
 
 	/* ss */

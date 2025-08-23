@@ -7,10 +7,12 @@
 #include "peer.h"
 #include "zk_pending.h"
 #include "wgzk_genl.h"
+#include "zk_proof.h"
 
 struct wg_peer *wg_noise_handshake_consume_initiation(void *raw_msg,
                                                       struct wg_device *wg);
 void wg_packet_send_handshake_response(struct wg_peer *peer);
+static int wgzk_set_proof_handler(struct sk_buff *skb, struct genl_info *info);
 
 extern struct hlist_head zk_pending_table[];
 extern spinlock_t zk_lock;
@@ -22,6 +24,10 @@ enum {
 	WGZK_ATTR_UNSPEC,
 	WGZK_ATTR_PEER_INDEX,
 	WGZK_ATTR_RESULT,
+    /* new: for setting proof */
+    WGZK_ATTR_PEER_ID,   /* NLA_U64: peer->internal_id */
+    WGZK_ATTR_R,         /* NLA_BINARY, len=32 */
+    WGZK_ATTR_S,         /* NLA_BINARY, len=32 */
 	__WGZK_ATTR_MAX,
 };
 #define WGZK_ATTR_MAX (__WGZK_ATTR_MAX - 1)
@@ -32,6 +38,8 @@ enum {
 enum {
     WGZK_CMD_UNSPEC,
 	WGZK_CMD_VERIFY,
+    /* new */
+    WGZK_CMD_SET_PROOF,
     __WGZK_CMD_MAX,
 };
 #define WGZK_CMD_MAX (__WGZK_CMD_MAX - 1)
@@ -42,6 +50,9 @@ enum {
 static const struct nla_policy wgzk_genl_policy[WGZK_ATTR_MAX + 1] = {
 	[WGZK_ATTR_PEER_INDEX] = { .type = NLA_U32 },
 	[WGZK_ATTR_RESULT]     = { .type = NLA_U8 },
+    [WGZK_ATTR_PEER_ID]    = { .type = NLA_U64 },
+    [WGZK_ATTR_R]          = { .type = NLA_BINARY, .len = 32 },
+    [WGZK_ATTR_S]          = { .type = NLA_BINARY, .len = 32 },
 };
 
 //
@@ -68,9 +79,11 @@ static int wgzk_verify_handler(struct sk_buff *skb, struct genl_info *info) {
     }
 
     // ZK proof accepted
-    if (result == 1 && entry->peer) {
+    if (result == 1) {
         struct wg_peer *peer = NULL;
         if (entry->raw && entry->wg) {
+            struct message_handshake_initiation *norm = (void *)entry->raw;
+            norm->header.type = cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION);
             /* Re-run the normal handshake path; it will decrypt static,
              * bind to the correct peer, and return it on success. */
             peer = wg_noise_handshake_consume_initiation(entry->raw, entry->wg);
@@ -103,6 +116,12 @@ static const struct genl_ops wgzk_genl_ops[] = {
 		.policy = wgzk_genl_policy,
 		.doit = wgzk_verify_handler,
 	},
+    {
+        .cmd = WGZK_CMD_SET_PROOF,
+        .flags = 0,
+        .policy = wgzk_genl_policy,
+        .doit = wgzk_set_proof_handler,
+    },
 };
 
 //
@@ -134,4 +153,28 @@ void wgzk_genl_exit(void)
 {
 	genl_unregister_family(&wgzk_genl_family);
 	pr_info("WG-ZK: Generic Netlink interface unregistered\n");
+}
+
+static int wgzk_set_proof_handler(struct sk_buff *skb, struct genl_info *info)
+{
+    u64 peer_id;
+    u8 *r, *s;
+
+    if (!info->attrs[WGZK_ATTR_PEER_ID] ||
+        !info->attrs[WGZK_ATTR_R] ||
+        !info->attrs[WGZK_ATTR_S])
+        return -EINVAL;
+
+    if (nla_len(info->attrs[WGZK_ATTR_R]) != 32 ||
+        nla_len(info->attrs[WGZK_ATTR_S]) != 32)
+        return -EINVAL;
+
+    peer_id = nla_get_u64(info->attrs[WGZK_ATTR_PEER_ID]);
+    r = nla_data(info->attrs[WGZK_ATTR_R]);
+    s = nla_data(info->attrs[WGZK_ATTR_S]);
+
+    zk_proof_set(peer_id, r, s);
+    pr_info("WG-ZK: cached proof for peer_id=%llu\n",
+            (unsigned long long)peer_id);
+    return 0;
 }

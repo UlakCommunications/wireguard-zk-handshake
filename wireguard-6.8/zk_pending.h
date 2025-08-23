@@ -20,13 +20,13 @@ struct zk_pending_entry {
 extern struct hlist_head zk_pending_table[];
 extern spinlock_t zk_lock;
 int zk_pending_get_count(void);
-void zk_pending_add(u32 sender_index, struct wg_peer *peer,
+void zk_pending_add(u32 sender_index,
+					struct wg_peer *peer,
                     struct wg_device *wg,
                     const void *raw,
                     size_t len);
 struct wg_peer *zk_pending_get(u32 sender_index);
 void zk_pending_cleanup_expired(void);
-
 void zk_pending_init_cleanup_timer(void);
 void zk_pending_cleanup_timer_exit(void);
 /* Remove entry by sender_index and return it (caller must kfree()) */
