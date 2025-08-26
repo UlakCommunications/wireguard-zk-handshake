@@ -65,6 +65,15 @@ impl From<u16> for WgzkAttr {
         }
     }
 }
+// attr ids must match the kernel
+const ATTR_PEER_INDEX: u16 = 1; // (for VERIFY only)
+const ATTR_RESULT:     u16 = 2; // (for VERIFY only)
+const ATTR_PEER_ID:    u16 = 3; // u64
+const ATTR_R:          u16 = 4; // [32]
+const ATTR_S:          u16 = 5; // [32]
+const ATTR_IFINDEX:    u16 = 6; // u32
+// const ATTR_PEER_PUB: u16 = 7; // optional
+// const ATTR_TOKEN:    u16 = 8; // server/VERIFY path
 
 pub struct GenlResolved {
     pub family_id: u16,
@@ -147,7 +156,7 @@ pub async fn resolve_family_and_groups(
         .build()?;
     let req: Nlmsghdr<GenlId, Genlmsghdr<CtrlCmd, CtrlAttr>> = NlmsghdrBuilder::default()
         .nl_type(GenlId::Ctrl)
-        .nl_flags(NlmF::REQUEST | NlmF::ACK)
+        .nl_flags(NlmF::REQUEST )
         .nl_payload(NlPayload::Payload(genlhdr))
         .build()?;
 
@@ -222,6 +231,7 @@ pub async fn resolve_family_and_groups(
         }
 
         if family_id.is_some() {
+            eprintln!( "[daemon] Family id found" );
             break;
         }
     }
@@ -242,6 +252,7 @@ pub async fn send_set_proof(
     token: Option<u32>,   // <—
     r: &[u8; 32],
     s: &[u8; 32],
+    ifindex: u32,
 ) -> Result<()> {
     let mut attrs: GenlBuffer<u16, Buffer> = GenlBuffer::new();
     attrs.push(nattr_u16(WgzkAttr::PeerId as u16, peer_id.to_le_bytes().to_vec())?);
@@ -250,6 +261,7 @@ pub async fn send_set_proof(
     }
     attrs.push(nattr_u16(WgzkAttr::R as u16, r.to_vec())?);
     attrs.push(nattr_u16(WgzkAttr::S as u16, s.to_vec())?);
+    attrs.push(nattr_u16(WgzkAttr::Ifindex as u16, ifindex.to_le_bytes().to_vec())?);
     // İleride 'extra' bağlamak istersen, burada yeni bir ATTR ekleyebilirsin (kernel destekliyorsa).
 
     let genlhdr = GenlmsghdrBuilder::default()
@@ -305,6 +317,7 @@ pub struct NeedProofEvent {
 
 pub fn try_parse_need_proof(genl: &Genlmsghdr<u8, u16>) -> Option<NeedProofEvent> {
     if *genl.cmd() != WgzkCmd::NeedProof as u8 {
+        eprintln!( "[daemon] not need proof" );
         return None;
     }
     let mut ifindex: Option<u32> = None;
@@ -313,18 +326,22 @@ pub fn try_parse_need_proof(genl: &Genlmsghdr<u8, u16>) -> Option<NeedProofEvent
     let mut token: Option<u32> = None;
 
     for a in genl.attrs().iter() {
+        eprintln!( "[daemon] recevied sth" );
         match WgzkAttr::from(*a.nla_type().nla_type()) {
             WgzkAttr::Ifindex => {
+                eprintln!( "[daemon] recevied ifindex" );
                 let b = a.payload();
                 let bytes: [u8; 4] = b.as_ref().try_into().ok()?;
                 ifindex = Some(u32::from_le_bytes(bytes));
             }
             WgzkAttr::PeerId => {
+                eprintln!( "[daemon] recevied PeerId" );
                 let b = a.payload();
                 let bytes: [u8; 8] = b.as_ref().try_into().ok()?;
                 peer_id = Some(u64::from_le_bytes(bytes));
             }
             WgzkAttr::PeerPub => {
+                eprintln!( "[daemon] recevied PeerPub" );
                 let p = a.payload();
                 let s = p.as_ref();
                 if s.len() == 32 {
@@ -334,11 +351,13 @@ pub fn try_parse_need_proof(genl: &Genlmsghdr<u8, u16>) -> Option<NeedProofEvent
                 }
             }
             WgzkAttr::Token => {
+                eprintln!( "[daemon] recevied Token" );
                 let b = a.payload();
                 let bytes: [u8; 4] = b.as_ref().try_into().ok()?;
                 token = Some(u32::from_le_bytes(bytes));
             }
-            _ => {}
+            _ => {
+                eprintln!( "[daemon] recevied other" );}
         }
     }
 
@@ -356,16 +375,28 @@ pub async fn recv_next(
     use neli::{consts::nl::NlTypeWrapper, nl::NlPayload};
     use neli::consts::nl::Nlmsg;
 
-    let (iter, _groups) = sock.recv::<NlTypeWrapper, neli::genl::Genlmsghdr<u8, u16>>().await?;
+    let (iter, _groups) = sock.recv::<NlTypeWrapper, Genlmsghdr<u8, u16>>().await?;
+
+    eprintln!("[wgzk] recv worked");
+
     for msg in iter {
+        eprintln!( "[daemon] recevied sth" );
         let msg = msg?;                       // Nlmsghdr<_, _>
         let nlw = *msg.nl_type();             // NlTypeWrapper
         let nl_u16: u16 = nlw.into();         // -> u16
 
         match Nlmsg::from(nl_u16) {
-            Nlmsg::Noop => continue,
-            Nlmsg::Error => return Err(anyhow::anyhow!("netlink error frame")),
-            _ => {}
+            Nlmsg::Noop => {
+                eprintln!( "[daemon] recevied sth" );
+                continue
+            },
+            Nlmsg::Error => {
+                eprintln!( "[daemon] recevied sth" );
+                return Err(anyhow::anyhow!("netlink error frame"))
+            },
+            _ => {
+                eprintln!( "[daemon] recevied other" );
+            }
         }
 
         if let NlPayload::Payload(g) = msg.nl_payload() {

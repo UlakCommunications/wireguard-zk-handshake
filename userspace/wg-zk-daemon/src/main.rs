@@ -61,20 +61,24 @@ async fn main() -> Result<()> {
     // CLIENT TASK (NEED_PROOF → SET_PROOF)
     let client_task = tokio::spawn(async move {
 
-
         eprintln!( "[daemon] Connecting to genl" );
 
         let mut sock = connect_genl().await.expect("genl connect (client)");
 
         eprintln!( "[daemon] Connecting to wgzk" );
         let resolved = resolve_family_and_groups(&mut sock, "wgzk").await.expect("resolve wgzk");
+        eprintln!("[wgzk] family_id={}, events_mc_id={}", resolved.family_id, resolved.mcast_groups.get("events").unwrap());
 
         eprintln!( "[daemon] Connecting to mcast" );
         add_mcast(&sock, *resolved.mcast_groups.get("events").unwrap()).await.expect("join events");
+        eprintln!("[wgzk] joined events");
+        eprintln!("[wgzk] ns={}", std::fs::read_link("/proc/self/ns/net").unwrap().display());
+        eprintln!("[wgzk] family_id={}, events_mc_id={}", resolved.family_id, resolved.mcast_groups.get("events").unwrap());
         let family_id = resolved.family_id;
 
         eprintln!( "[daemon] Connecting to family_id" );
         loop {
+
             match recv_next(&mut sock).await {
                 Ok((_nl_type, genl)) => {
 
@@ -97,7 +101,7 @@ async fn main() -> Result<()> {
                             let sk = SK.get().expect("WGZK_SK_HEX missing");
                             let (r, s) = zk::prove(sk, b"");
 
-                            if let Err(e) = send_set_proof(&mut sock, family_id, ev.peer_id, ev.token, &r, &s).await {
+                            if let Err(e) = send_set_proof(&mut sock, family_id, ev.peer_id, ev.token, &r, &s,ev.ifindex).await {
                                 eprintln!("[daemon] send_set_proof error: {e:?}");
                             } else {
                                 eprintln!(
