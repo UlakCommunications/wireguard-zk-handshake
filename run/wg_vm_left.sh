@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # ---------- EDIT THESE ----------
-PEER_ENDPOINT="10.0.2.15:51921"   # RIGHT VM's reachable underlay IP:port (UDP)
+PEER_ENDPOINT="10.0.2.7:51921"   # RIGHT VM's reachable underlay IP:port (UDP)
 LISTEN_PORT=51821                  # LEFT WG listen port
 # --------------------------------
 
@@ -26,6 +26,26 @@ KEY_PRIV="private_left0"
 KEY_PUB="publeft0"
 PEER_PUB_FILE="pubright0"     # <-- copy RIGHT's pubkey here (from right.pub)
 
+copy() {
+  sudo modprobe -r wireguard
+  sudo install -D -m 644 "/home/m/wireguard.ko"  /lib/modules/$(uname -r)/extra/wireguard.ko
+  sudo insmod /lib/modules/$(uname -r)/extra/wireguard.ko
+  sudo modprobe libchacha20poly1305
+  sudo modprobe libcurve25519
+  sudo modprobe udp_tunnel
+  sudo modprobe ip6_udp_tunnel
+  sudo modprobe curve25519-x86_64
+  sudo modprobe libcurve25519-generic
+  sudo modprobe libchacha20poly1305
+  sudo modprobe udp_tunnel
+  sudo modprobe ip6_udp_tunnel
+  sudo modprobe chacha20poly1305
+  sudo modprobe gcm
+  sudo modprobe aes_generic
+  sudo modprobe aesni_intel
+  sudo modprobe af_alg
+  sudo insmod /lib/modules/$(uname -r)/extra/wireguard.ko
+}
 ensure_keys() {
   umask 077
   [[ -f "$KEY_PRIV" ]] || wg genkey > "$KEY_PRIV"
@@ -49,7 +69,7 @@ up() {
   ensure_keys
 
   # WireGuard iface
-  ip link add "$WG_IF" type wireguard || true
+  ip link add "$WG_IF" type wireguard 2>/dev/null|| true
   ip addr add "$WG_ADDR" dev "$WG_IF" 2>/dev/null || true
   ip link set "$WG_IF" up
   wg set "$WG_IF" private-key "$KEY_PRIV"
@@ -91,11 +111,17 @@ down() {
 }
 
 iperf_server() {
+  #copy
+  #up
+  echo 1 > sudo tee /sys/kernel/debug/wireguard/zk_require_proof
   echo "Starting iperf3 server on $DUM_HOST"
   iperf3 -s -B "$DUM_HOST" --forceflush --interval 1
 }
 
 iperf_client() {
+  #copy
+  #up
+  echo 0 > sudo tee /sys/kernel/debug/wireguard/zk_require_proof
   # Talk to RIGHT dummy from LEFT dummy; ensure RIGHT has server running
   echo "Running iperf3 client: src=$DUM_HOST dst=10.20.10.10"
   iperf3 -c 10.20.10.10 -B "$DUM_HOST" -t 20 -P 1 -M 1310 --interval 1

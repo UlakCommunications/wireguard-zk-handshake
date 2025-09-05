@@ -41,3 +41,8 @@ sudo modprobe af_alg
 #sudo modprobe wireguard   # or:
 sudo insmod /lib/modules/$(uname -r)/extra/wireguard.ko
 sudo dmesg | grep wireguard
+
+
+
+echo 1 > sudo tee /sys/kernel/debug/wireguard/wg0/zk_require_proof   # gateway
+echo 0 > sudo tee /sys/kernel/debug/wireguard/wg0/zk_require_proof   # client

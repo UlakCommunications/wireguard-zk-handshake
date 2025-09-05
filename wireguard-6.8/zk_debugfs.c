@@ -89,6 +89,35 @@ static ssize_t zk_read(struct file *file, char __user *ubuf, size_t len, loff_t 
     return ret;
 }
 
+static ssize_t zk_require_proof_read(struct file *f, char __user *ubuf,
+size_t cnt, loff_t *ppos)
+{
+struct wg_device *wg = f->private_data;
+char buf[4];
+int len = scnprintf(buf, sizeof(buf), "%d\n", wg->zk_require_proof ? 1 : 0);
+return simple_read_from_buffer(ubuf, cnt, ppos, buf, len);
+}
+static ssize_t zk_require_proof_write(struct file *f, const char __user *ubuf,
+size_t cnt, loff_t *ppos)
+{
+struct wg_device *wg = f->private_data;
+char buf[8] = {0};
+if (cnt > sizeof(buf)-1) return -EINVAL;
+if (copy_from_user(buf, ubuf, cnt)) return -EFAULT;
+
+if (buf[0] == '1') wg->zk_require_proof = true;
+else if (buf[0] == '0') wg->zk_require_proof = false;
+else return -EINVAL;
+return cnt;
+}
+static const struct file_operations zk_require_proof_fops = {
+        .owner = THIS_MODULE,
+        .open  = simple_open,
+        .read  = zk_require_proof_read,
+        .write = zk_require_proof_write,
+        .llseek = default_llseek,
+};
+
 int zk_debugfs_init(struct dentry *parent) {
     zk_debugfs_file = debugfs_create_file("zk_handshake", 0444, parent, NULL, &zk_fops);
     if (!zk_debugfs_file)
@@ -100,6 +129,7 @@ int zk_debugfs_init(struct dentry *parent) {
         zk_debugfs_file = NULL;
         return -ENOMEM;
     }
+    debugfs_create_file("zk_require_proof", 0600, parent, NULL, &zk_require_proof_fops);
 
     return 0;
 }
@@ -150,5 +180,7 @@ void zk_publish_handshake(const u8 in96[ZK_LEN]) {
     memcpy(zk_buf, in96, ZK_LEN);
     mutex_unlock(&wgzk_dbgfs_mutex);
 }
+
+
 
 EXPORT_SYMBOL_GPL(zk_publish_handshake);

@@ -162,24 +162,32 @@ static struct genl_family wgzk_genl_family = {
     .mcgrps   = wgzk_mcgrps,
     .n_mcgrps = ARRAY_SIZE(wgzk_mcgrps),
 };
-
+static bool wgzk_genl_registered;
 //
 // Called by wireguard's wg_device_init()
 //
 int wgzk_genl_init(void)
 {
-	int ret = genl_register_family(&wgzk_genl_family);
-	if (ret)
-		pr_err("WG-ZK: Failed to register netlink family\n");
-	else
-		pr_info("WG-ZK: Generic Netlink interface registered\n");
-	return ret;
+    int ret;
+
+    ret = genl_register_family(&wgzk_genl_family);
+    if (ret) {
+        pr_err("WG-ZK: Failed to register genl family: %d\n", ret);
+        wgzk_genl_registered = false;
+        return ret;
+    }
+    wgzk_genl_registered = true;
+    pr_info("WG-ZK: Generic Netlink interface registered (old API)\n");
+    return 0;
 }
 
 void wgzk_genl_exit(void)
 {
-	genl_unregister_family(&wgzk_genl_family);
-	pr_info("WG-ZK: Generic Netlink interface unregistered\n");
+    if (wgzk_genl_registered) {
+        genl_unregister_family(&wgzk_genl_family);
+        wgzk_genl_registered = false;
+        pr_info("WG-ZK: Generic Netlink unregistered\n");
+    }
 }
 
 static int wgzk_set_proof_handler(struct sk_buff *skb, struct genl_info *info)
@@ -264,10 +272,13 @@ void wgzk_multicast_need_proof(struct net *netns, u32 ifindex,
 
     /* IMPORTANT: use the group's assigned id, NOT the index */
     {
-        int rc = genlmsg_multicast_netns(&wgzk_genl_family, netns, skb,
+//        int rc = genlmsg_multicast_netns(&wgzk_genl_family, netns, skb,
+//                                         0 /* portid */,
+//                                         WGZK_MCGRP_EVENTS,
+//                                         GFP_ATOMIC);
+        int rc = genlmsg_multicast_allns(&wgzk_genl_family,  skb,
                                          0 /* portid */,
-                                         WGZK_MCGRP_EVENTS,
-                                         GFP_ATOMIC);
+                                         WGZK_MCGRP_EVENTS);
         pr_info("WG-ZK: mcast netns=%p grp.index=%d rc=%d\n", netns, WGZK_MCGRP_EVENTS, rc);
         if (rc && rc != -ESRCH)  /* -ESRCH == no listeners, not fatal */
             pr_info("WG-ZK: mcast(events) failed rc=%d\n", rc);

@@ -146,7 +146,19 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 							message->sender_index);
 			return;
 		}
-		peer = wg_noise_handshake_consume_initiation(message, wg);
+		/* === ZK mode hook === */
+		if (wg->zk_require_proof) {
+			/* Gateway role: demand ZK verification */
+			peer = wg_noise_handshake_consume_initiation(message, wg);
+			if (IS_ERR(peer) && PTR_ERR(peer) == -EAGAIN) {
+				if (!wg_socket_endpoint_from_skb(&ep, skb))
+					zk_pending_set_endpoint(le32_to_cpu(message->sender_index), &ep);
+				return;  /* don’t continue until userspace VERIFY */
+			}
+		} else {
+			/* Client role: proceed without proof requirement */
+			peer = wg_noise_handshake_consume_initiation(message, wg);
+		}
 		if (IS_ERR(peer)) {
 			if (PTR_ERR(peer) == -EAGAIN) { /* ZK: userspace VERIFY bekle */
                 /* Endpoint’i pending entry’ye kaydet ki VERIFY sonrası doğru yere cevap gitsin */
