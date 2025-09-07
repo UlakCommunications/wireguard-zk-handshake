@@ -30,7 +30,7 @@ PEER_PUB_FILE="publeft0"     # <-- copy RIGHT's pubkey here (from right.pub)
 copy() {
   modprobe -r wireguard
   install -D -m 644 "/home/m/wireguard.ko"  /lib/modules/$(uname -r)/extra/wireguard.ko
-  insmod /lib/modules/$(uname -r)/extra/wireguard.ko
+  #insmod /lib/modules/$(uname -r)/extra/wireguard.ko
   modprobe libchacha20poly1305
   modprobe libcurve25519
   modprobe udp_tunnel
