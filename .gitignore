@@ -12,3 +12,5 @@ wireguard.mod
 /tmp/**
 target/**
 Cargo.lock
+vagrant/keys/
+.vagrant/
