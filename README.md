@@ -173,13 +173,61 @@ Save `WGZK_SK_HEX` for the client `.env` and `WGZK_PK_HEX` for the gateway `.env
 
 ## Two-VM Demo
 
+### Quick Start with Vagrant (recommended)
+
+The easiest way to try the demo is with Vagrant. It spins up two VMs, loads the module, and runs the ping test automatically.
+
+**Pre-requisites** (run on host, once):
+
+```bash
+# 1. Build the kernel module and daemon
+cd wireguard-6.8 && make -C /lib/modules/6.8.0-59-generic/build M=$(pwd) modules
+cd userspace/wg-zk-daemon && cargo build --release
+cd userspace/gen-pk && cargo build --release
+
+# 2. Build the base Vagrant box (installs kernel 6.8.0-59-generic — takes ~5 min)
+cd vagrant && bash build-base.sh
+```
+
+**Run:**
+
+```bash
+vagrant up
+```
+
+This will:
+1. Generate WireGuard + ZK key pairs on the host
+2. Boot two VMs from the pre-built base image (kernel already installed — fast)
+3. Load `wireguard.ko` from the host into each VM
+4. Configure WireGuard interfaces and start the ZK daemon
+5. Run a 5-packet ping test and print `TEST PASSED`
+
+**Tear down:**
+
+```bash
+vagrant destroy -f
+```
+
+**When code changes** — rebuild on host, then re-provision:
+
+```bash
+# After editing wireguard-6.8/ or userspace/:
+make -C ...   # or cargo build --release
+vagrant destroy -f && vagrant up
+# The base box (kernel) is reused — no kernel reinstall needed.
+```
+
+---
+
+### Manual Two-VM Setup
+
 This demo uses two VMs with the network layout:
 
 ```
 LEFT VM (client)                    RIGHT VM (gateway)
   dum0l  10.10.10.10/24               dum0r  10.20.10.10/24
   wg1l   192.168.1.1/32  <=========>  wg1r   192.168.1.2/32
-         UDP 10.0.2.8:51821           UDP 10.0.2.7:51921
+         UDP 10.0.2.5:51821           UDP 10.0.2.4:51921
 ```
 
 ### Step 1 — Load the kernel module on both VMs
